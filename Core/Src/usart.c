@@ -19,6 +19,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "usart.h"
+#include "usbd_cdc_if.h"
 
 /* USER CODE BEGIN 0 */
 
@@ -33,6 +34,91 @@ DMA_HandleTypeDef hdma_usart2_rx;
 DMA_HandleTypeDef hdma_usart2_tx;
 DMA_HandleTypeDef hdma_usart3_rx;
 DMA_HandleTypeDef hdma_usart3_tx;
+
+uint8_t uart1_rx_buf[UART_RX_BUF_SIZE];
+uint8_t uart2_rx_buf[UART_RX_BUF_SIZE];
+uint8_t uart3_rx_buf[UART_RX_BUF_SIZE];
+
+#define UART_USB_PREFIX_ENABLE 1U
+
+static void UART_Receive_Start_Once(UART_HandleTypeDef *huart, uint8_t *buf, uint16_t size)
+{
+  if (HAL_UARTEx_ReceiveToIdle_DMA(huart, buf, size) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
+static void UART_USB_Forward(UART_HandleTypeDef *huart, uint8_t *buf, uint16_t len)
+{
+  uint8_t tx_buf[UART_RX_BUF_SIZE + 8U];
+  uint16_t pos = 0U;
+
+  if (len == 0U)
+  {
+    return;
+  }
+
+#if UART_USB_PREFIX_ENABLE
+  if (huart == &huart1)
+  {
+    tx_buf[pos++] = 'U';
+    tx_buf[pos++] = '1';
+    tx_buf[pos++] = ':';
+  }
+  else if (huart == &huart2)
+  {
+    tx_buf[pos++] = 'U';
+    tx_buf[pos++] = '2';
+    tx_buf[pos++] = ':';
+  }
+  else if (huart == &huart3)
+  {
+    tx_buf[pos++] = 'U';
+    tx_buf[pos++] = '3';
+    tx_buf[pos++] = ':';
+  }
+#endif
+
+  if (len > (UART_RX_BUF_SIZE + 8U - pos))
+  {
+    len = (uint16_t)(UART_RX_BUF_SIZE + 8U - pos);
+  }
+
+  memcpy(&tx_buf[pos], buf, len);
+  pos += len;
+
+  while (CDC_Transmit_FS(tx_buf, pos) == USBD_BUSY)
+  {
+    __NOP();
+  }
+}
+
+void MX_USART_DMA_Receive_Start(void)
+{
+  UART_Receive_Start_Once(&huart1, uart1_rx_buf, UART_RX_BUF_SIZE);
+  UART_Receive_Start_Once(&huart2, uart2_rx_buf, UART_RX_BUF_SIZE);
+  UART_Receive_Start_Once(&huart3, uart3_rx_buf, UART_RX_BUF_SIZE);
+}
+
+void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
+{
+  if (huart == &huart1)
+  {
+    UART_USB_Forward(&huart1, uart1_rx_buf, Size);
+    UART_Receive_Start_Once(&huart1, uart1_rx_buf, UART_RX_BUF_SIZE);
+  }
+  else if (huart == &huart2)
+  {
+    UART_USB_Forward(&huart2, uart2_rx_buf, Size);
+    UART_Receive_Start_Once(&huart2, uart2_rx_buf, UART_RX_BUF_SIZE);
+  }
+  else if (huart == &huart3)
+  {
+    UART_USB_Forward(&huart3, uart3_rx_buf, Size);
+    UART_Receive_Start_Once(&huart3, uart3_rx_buf, UART_RX_BUF_SIZE);
+  }
+}
 
 /* USART1 init function */
 
@@ -77,7 +163,7 @@ void MX_USART2_UART_Init(void)
   /* USER CODE END USART2_Init 1 */
   huart2.Instance = USART2;
   huart2.Init.BaudRate = 1000000;
-  huart2.Init.WordLength = UART_WORDLENGTH_8B;
+  huart2.Init.WordLength = UART_WORDLENGTH_9B;
   huart2.Init.StopBits = UART_STOPBITS_1;
   huart2.Init.Parity = UART_PARITY_EVEN;
   huart2.Init.Mode = UART_MODE_TX_RX;
@@ -106,7 +192,7 @@ void MX_USART3_UART_Init(void)
   /* USER CODE END USART3_Init 1 */
   huart3.Instance = USART3;
   huart3.Init.BaudRate = 1000000;
-  huart3.Init.WordLength = UART_WORDLENGTH_8B;
+  huart3.Init.WordLength = UART_WORDLENGTH_9B;
   huart3.Init.StopBits = UART_STOPBITS_1;
   huart3.Init.Parity = UART_PARITY_EVEN;
   huart3.Init.Mode = UART_MODE_TX_RX;

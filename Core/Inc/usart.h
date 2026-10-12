@@ -38,6 +38,12 @@ extern UART_HandleTypeDef huart2;
 
 extern UART_HandleTypeDef huart3;
 
+#define UART_RX_BUF_SIZE 256U
+
+extern uint8_t uart1_rx_buf[UART_RX_BUF_SIZE];
+extern uint8_t uart2_rx_buf[UART_RX_BUF_SIZE];
+extern uint8_t uart3_rx_buf[UART_RX_BUF_SIZE];
+
 /* USER CODE BEGIN Private defines */
 
 /* USER CODE END Private defines */
@@ -45,6 +51,7 @@ extern UART_HandleTypeDef huart3;
 void MX_USART1_UART_Init(void);
 void MX_USART2_UART_Init(void);
 void MX_USART3_UART_Init(void);
+void MX_USART_DMA_Receive_Start(void);
 
 /* USER CODE BEGIN Prototypes */
 

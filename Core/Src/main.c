@@ -24,6 +24,7 @@
 #include "usart.h"
 #include "usb_device.h"
 #include "gpio.h"
+#include "usbd_cdc_if.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -97,6 +98,7 @@ int main(void)
   MX_USART2_UART_Init();
   MX_USART3_UART_Init();
   MX_USB_DEVICE_Init();
+  MX_USART_DMA_Receive_Start();
   MX_SPI2_Init();
   /* USER CODE BEGIN 2 */
 

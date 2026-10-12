@@ -32,3 +32,14 @@ rs485\usart.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_uart.h
 rs485\usart.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_pcd.h
 rs485\usart.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_ll_usb.h
 rs485\usart.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_pcd_ex.h
+rs485\usart.o: ../USB_DEVICE/App/usbd_cdc_if.h
+rs485\usart.o: ../Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc/usbd_cdc.h
+rs485\usart.o: ../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_ioreq.h
+rs485\usart.o: ../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_def.h
+rs485\usart.o: ../USB_DEVICE/Target/usbd_conf.h
+rs485\usart.o: D:\03_Software\01_Development\11_Keil5_MDK\01_Core\ARM\ARMCC\Bin\..\include\stdio.h
+rs485\usart.o: D:\03_Software\01_Development\11_Keil5_MDK\01_Core\ARM\ARMCC\Bin\..\include\stdlib.h
+rs485\usart.o: D:\03_Software\01_Development\11_Keil5_MDK\01_Core\ARM\ARMCC\Bin\..\include\string.h
+rs485\usart.o: ../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_core.h
+rs485\usart.o: ../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_ioreq.h
+rs485\usart.o: ../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_ctlreq.h
