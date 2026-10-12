@@ -43,6 +43,11 @@ extern UART_HandleTypeDef huart3;
 extern uint8_t uart1_rx_buf[UART_RX_BUF_SIZE];
 extern uint8_t uart2_rx_buf[UART_RX_BUF_SIZE];
 extern uint8_t uart3_rx_buf[UART_RX_BUF_SIZE];
+extern volatile uint32_t uart1_rx_count;
+extern volatile uint32_t uart2_rx_count;
+extern volatile uint32_t uart3_rx_count;
+extern volatile uint32_t uart_total_rx_count;
+extern volatile uint32_t uart_rx_queue_drops;
 
 /* USER CODE BEGIN Private defines */
 
@@ -52,6 +57,7 @@ void MX_USART1_UART_Init(void);
 void MX_USART2_UART_Init(void);
 void MX_USART3_UART_Init(void);
 void MX_USART_DMA_Receive_Start(void);
+void UART_USB_Process(void);
 
 /* USER CODE BEGIN Prototypes */
 

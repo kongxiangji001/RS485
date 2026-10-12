@@ -4,6 +4,8 @@
 "rs485\gpio.o"
 "rs485\dma.o"
 "rs485\i2c.o"
+"rs485\ssd1306.o"
+"rs485\oled_ui.o"
 "rs485\spi.o"
 "rs485\usart.o"
 "rs485\stm32f1xx_it.o"

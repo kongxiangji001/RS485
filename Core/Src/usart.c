@@ -38,8 +38,55 @@ DMA_HandleTypeDef hdma_usart3_tx;
 uint8_t uart1_rx_buf[UART_RX_BUF_SIZE];
 uint8_t uart2_rx_buf[UART_RX_BUF_SIZE];
 uint8_t uart3_rx_buf[UART_RX_BUF_SIZE];
+volatile uint32_t uart1_rx_count;
+volatile uint32_t uart2_rx_count;
+volatile uint32_t uart3_rx_count;
+volatile uint32_t uart_total_rx_count;
+volatile uint32_t uart_rx_queue_drops;
 
-#define UART_USB_PREFIX_ENABLE 1U
+#define UART_RECORD_QUEUE_SIZE 201U
+#define UART_RECORD_DATA_SIZE 32U
+#define UART_BATCH_SIZE       100U
+#define UART_COUNT_MAX        999999999UL
+#define UART_USB_LINE_SIZE    160U
+
+typedef struct
+{
+  uint32_t sequence;
+  uint32_t batch;
+  uint8_t data[UART_RECORD_DATA_SIZE];
+  uint16_t received_length;
+  uint8_t port;
+  uint8_t oversized;
+} UART_Record;
+
+static UART_Record uart_record_queue[UART_RECORD_QUEUE_SIZE];
+static volatile uint16_t uart_queue_head;
+static volatile uint16_t uart_queue_tail;
+static uint32_t uart_current_batch = 1U;
+static volatile uint32_t uart_completed_batches;
+static uint16_t uart_batch_receive_count;
+static uint32_t uart_usb_active_batch = 1U;
+static uint8_t uart_usb_tx_in_flight;
+static uint8_t uart_usb_tx_line[UART_USB_LINE_SIZE];
+
+static uint16_t UART_Queue_Next(uint16_t index)
+{
+  index++;
+  if (index >= UART_RECORD_QUEUE_SIZE)
+  {
+    index = 0U;
+  }
+  return index;
+}
+
+static void UART_Count_Increment(volatile uint32_t *count)
+{
+  if (*count < UART_COUNT_MAX)
+  {
+    (*count)++;
+  }
+}
 
 static void UART_Receive_Start_Once(UART_HandleTypeDef *huart, uint8_t *buf, uint16_t size)
 {
@@ -47,50 +94,203 @@ static void UART_Receive_Start_Once(UART_HandleTypeDef *huart, uint8_t *buf, uin
   {
     Error_Handler();
   }
+  if (huart->hdmarx != NULL)
+  {
+    __HAL_DMA_DISABLE_IT(huart->hdmarx, DMA_IT_HT);
+  }
 }
 
-static void UART_USB_Forward(UART_HandleTypeDef *huart, uint8_t *buf, uint16_t len)
+static uint8_t UART_Port_Number(UART_HandleTypeDef *huart)
 {
-  uint8_t tx_buf[UART_RX_BUF_SIZE + 8U];
-  uint16_t pos = 0U;
+  if (huart == &huart1)
+  {
+    return 1U;
+  }
+  else if (huart == &huart2)
+  {
+    return 2U;
+  }
+  else if (huart == &huart3)
+  {
+    return 3U;
+  }
+  return 0U;
+}
+
+static void UART_Record_Received(UART_HandleTypeDef *huart, uint8_t *buf, uint16_t len)
+{
+  uint16_t next_head;
+  uint8_t port;
+  UART_Record *record;
 
   if (len == 0U)
   {
     return;
   }
 
-#if UART_USB_PREFIX_ENABLE
-  if (huart == &huart1)
+  port = UART_Port_Number(huart);
+  if (port == 0U)
   {
-    tx_buf[pos++] = 'U';
-    tx_buf[pos++] = '1';
-    tx_buf[pos++] = ':';
-  }
-  else if (huart == &huart2)
-  {
-    tx_buf[pos++] = 'U';
-    tx_buf[pos++] = '2';
-    tx_buf[pos++] = ':';
-  }
-  else if (huart == &huart3)
-  {
-    tx_buf[pos++] = 'U';
-    tx_buf[pos++] = '3';
-    tx_buf[pos++] = ':';
-  }
-#endif
-
-  if (len > (UART_RX_BUF_SIZE + 8U - pos))
-  {
-    len = (uint16_t)(UART_RX_BUF_SIZE + 8U - pos);
+    return;
   }
 
-  memcpy(&tx_buf[pos], buf, len);
-  pos += len;
-
-  while (CDC_Transmit_FS(tx_buf, pos) == USBD_BUSY)
+  UART_Count_Increment(&uart_total_rx_count);
+  if (port == 1U)
   {
-    __NOP();
+    UART_Count_Increment(&uart1_rx_count);
+  }
+  else if (port == 2U)
+  {
+    UART_Count_Increment(&uart2_rx_count);
+  }
+  else
+  {
+    UART_Count_Increment(&uart3_rx_count);
+  }
+
+  next_head = UART_Queue_Next(uart_queue_head);
+  if (next_head == uart_queue_tail)
+  {
+    UART_Count_Increment(&uart_rx_queue_drops);
+  }
+  else
+  {
+    record = &uart_record_queue[uart_queue_head];
+    record->sequence = uart_total_rx_count;
+    record->batch = uart_current_batch;
+    record->received_length = len;
+    record->port = port;
+    record->oversized = (len > UART_RECORD_DATA_SIZE) ? 1U : 0U;
+    if (record->oversized == 0U)
+    {
+      memcpy(record->data, buf, len);
+    }
+    __DMB();
+    uart_queue_head = next_head;
+  }
+
+  uart_batch_receive_count++;
+  if (uart_batch_receive_count >= UART_BATCH_SIZE)
+  {
+    uart_batch_receive_count = 0U;
+    uart_completed_batches = uart_current_batch;
+    if (uart_current_batch < 0xFFFFFFFFUL)
+    {
+      uart_current_batch++;
+    }
+  }
+}
+
+static uint16_t UART_Append_Decimal(uint8_t *out, uint16_t pos, uint32_t value)
+{
+  uint8_t digits[10];
+  uint8_t count = 0U;
+
+  do
+  {
+    digits[count++] = (uint8_t)('0' + (value % 10U));
+    value /= 10U;
+  } while (value != 0U);
+
+  while (count > 0U)
+  {
+    out[pos++] = digits[--count];
+  }
+  return pos;
+}
+
+static uint16_t UART_Format_Record(const UART_Record *record, uint8_t *out)
+{
+  static const uint8_t hex[] = "0123456789ABCDEF";
+  uint16_t pos = 0U;
+  uint16_t index;
+
+  pos = UART_Append_Decimal(out, pos, record->sequence);
+  out[pos++] = '\t';
+  out[pos++] = 'U';
+  out[pos++] = (uint8_t)('0' + record->port);
+  out[pos++] = '\t';
+
+  if (record->oversized != 0U)
+  {
+    static const uint8_t oversized[] = "OVERSIZE(";
+    memcpy(&out[pos], oversized, sizeof(oversized) - 1U);
+    pos += sizeof(oversized) - 1U;
+    pos = UART_Append_Decimal(out, pos, record->received_length);
+    out[pos++] = ')';
+  }
+  else
+  {
+    for (index = 0U; index < record->received_length; index++)
+    {
+      uint8_t value = record->data[index];
+      if ((value >= 0x20U) && (value <= 0x7EU) && (value != '\\'))
+      {
+        out[pos++] = value;
+      }
+      else
+      {
+        out[pos++] = '\\';
+        out[pos++] = 'x';
+        out[pos++] = hex[value >> 4U];
+        out[pos++] = hex[value & 0x0FU];
+      }
+    }
+  }
+
+  out[pos++] = '\r';
+  out[pos++] = '\n';
+  return pos;
+}
+
+void UART_USB_Process(void)
+{
+  UART_Record *record;
+  uint16_t line_length;
+
+  if (uart_usb_tx_in_flight != 0U)
+  {
+    if (CDC_TransmitReady_FS() == 0U)
+    {
+      return;
+    }
+    uart_usb_tx_in_flight = 0U;
+    __DMB();
+    uart_queue_tail = UART_Queue_Next(uart_queue_tail);
+  }
+
+  while (uart_usb_active_batch <= uart_completed_batches)
+  {
+    if (uart_queue_tail == uart_queue_head)
+    {
+      uart_usb_active_batch++;
+      continue;
+    }
+
+    __DMB();
+    record = &uart_record_queue[uart_queue_tail];
+    if (record->batch > uart_usb_active_batch)
+    {
+      uart_usb_active_batch++;
+      continue;
+    }
+    if (record->batch < uart_usb_active_batch)
+    {
+      uart_queue_tail = UART_Queue_Next(uart_queue_tail);
+      continue;
+    }
+
+    if (CDC_TransmitReady_FS() == 0U)
+    {
+      return;
+    }
+
+    line_length = UART_Format_Record(record, uart_usb_tx_line);
+    if (CDC_Transmit_FS(uart_usb_tx_line, line_length) == USBD_OK)
+    {
+      uart_usb_tx_in_flight = 1U;
+    }
+    return;
   }
 }
 
@@ -105,17 +305,17 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 {
   if (huart == &huart1)
   {
-    UART_USB_Forward(&huart1, uart1_rx_buf, Size);
+    UART_Record_Received(&huart1, uart1_rx_buf, Size);
     UART_Receive_Start_Once(&huart1, uart1_rx_buf, UART_RX_BUF_SIZE);
   }
   else if (huart == &huart2)
   {
-    UART_USB_Forward(&huart2, uart2_rx_buf, Size);
+    UART_Record_Received(&huart2, uart2_rx_buf, Size);
     UART_Receive_Start_Once(&huart2, uart2_rx_buf, UART_RX_BUF_SIZE);
   }
   else if (huart == &huart3)
   {
-    UART_USB_Forward(&huart3, uart3_rx_buf, Size);
+    UART_Record_Received(&huart3, uart3_rx_buf, Size);
     UART_Receive_Start_Once(&huart3, uart3_rx_buf, UART_RX_BUF_SIZE);
   }
 }
